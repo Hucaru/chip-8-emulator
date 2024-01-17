@@ -12,4 +12,4 @@ Windows OS
 To run the emulator pass the ROM path as the first command line argument e.g. `.\bin\emulator.exe .\roms\PONG2`
 
 ## Screenshots
-[[/screenshots/pong.png|PONG]]
+![PONG](screenshots/pong.png?raw=true "PONG")
