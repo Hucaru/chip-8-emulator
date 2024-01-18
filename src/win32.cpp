@@ -16,7 +16,7 @@ struct Window {
     BITMAPINFO frame_bitmap_info;
     HBITMAP frame_bitmap;
     HDC frame_device_context;
-    // Input events
+    Input_events input_events;
 };
 
 LRESULT CALLBACK 
@@ -81,16 +81,32 @@ WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             window->frame.height = HIWORD(lParam);
         } break;
         case WM_KEYDOWN:
-            if (wParam == VK_ESCAPE) 
+            if (wParam == VK_ESCAPE)
             {
-                PostQuitMessage(0);
-            } else 
+                window->input_events.event[Input_events::CODES::ESC] = Input_events::STATE::DOWN;
+            }
+            else if (wParam >= 0x30 && wParam <= 0x39)
             {
-                // record in window struct
+                window->input_events.event[wParam - 0x30] = Input_events::STATE::DOWN;
+            }
+            else if (wParam >= 0x41 && wParam <= 0x5A)
+            {
+                window->input_events.event[wParam - 0x30 - 7] = Input_events::STATE::DOWN;
             }
             break;
         case WM_KEYUP:
-            // record in window struct
+            if (wParam == VK_ESCAPE)
+            {
+                window->input_events.event[Input_events::CODES::ESC] = Input_events::STATE::UP;
+            }
+            if (wParam >= 0x30 && wParam <= 0x39)
+            {
+                window->input_events.event[wParam - 0x30] = Input_events::STATE::UP;
+            }
+            else if (wParam >= 0x41 && wParam <= 0x5A)
+            {
+                window->input_events.event[wParam - 0x30 - 7] = Input_events::STATE::UP;
+            }
             break;
         default:
             return DefWindowProc(hwnd, msg, wParam, lParam);
@@ -233,8 +249,21 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdS
     MSG msg = {};
     bool running = true;
 
+    LARGE_INTEGER start_time, end_time, frame_time;
+    LARGE_INTEGER frequency;
+
+    QueryPerformanceFrequency(&frequency); 
+    QueryPerformanceCounter(&start_time);
+
     while (running) 
     {
+        QueryPerformanceCounter(&end_time);
+        frame_time.QuadPart = end_time.QuadPart - start_time.QuadPart;
+        start_time = end_time;
+
+        frame_time.QuadPart *= 1000000;
+        frame_time.QuadPart /= frequency.QuadPart;
+
         while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) 
         {
             if (msg.message == WM_QUIT) 
@@ -248,17 +277,17 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdS
 
         if (!running) 
         {
-            break;
+            PostQuitMessage(0);
         }
 
-        if (!update_application(application))
+        if (!update_application(application, static_cast<double>(frame_time.QuadPart) / 1000))
         {
-            break;
+            PostQuitMessage(0);
         }
 
         // Sound?
 
-        handle_input(application);
+        handle_input(application, window.input_events);
 
         if (render_application(application, window.frame.pixels, window.frame.width, window.frame.height)) 
         {
@@ -305,4 +334,23 @@ void
 message_box(char *title, char *msg)
 {
     MessageBoxExA(NULL, msg, title, MB_OK, 0);
+}
+
+void
+clear_console()
+{
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+
+    COORD pos = { 0, 0};
+    DWORD written;
+    unsigned size;
+
+    size = csbi.srWindow.Bottom - csbi.srWindow.Top + 1 * csbi.srWindow.Right - csbi.srWindow.Left + 1;;
+
+    FillConsoleOutputCharacter(console, ' ', size, pos, &written);
+    FillConsoleOutputAttribute(console, 0, size, pos, &written);
+    SetConsoleCursorPosition(console, pos);
 }

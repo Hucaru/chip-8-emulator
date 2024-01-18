@@ -5,6 +5,7 @@
 #include <ctime>
 
 #include <algorithm>
+#include <iostream>
 
 const uint16_t MEMORY_START_ADDRESS = 0x200;
 const int SCREEN_WIDTH = 64;
@@ -22,10 +23,13 @@ struct Chip8 {
     uint16_t delay_timer;
     uint16_t sound_timer;
     uint8_t last_key_press;
+    uint8_t key_register;
 
     bool video_updated;
     bool require_input;
-    bool terminate;
+    bool running;
+
+    double frame_time;
 
     void cycle();
 };
@@ -53,9 +57,15 @@ const uint8_t font[80] =
 void 
 Chip8::cycle() 
 {
-    if (pc + MEMORY_START_ADDRESS >= 4096 || require_input) 
+    if (require_input && last_key_press == 0)
     {
-        return;    
+        return;
+    }
+    else if (require_input && last_key_press > 0)
+    {
+        registers[key_register] = last_key_press;
+        last_key_press = 0;
+        require_input = false;
     }
 
     video_updated = false;
@@ -74,15 +84,14 @@ Chip8::cycle()
             switch (opcode) 
             {
                 case 0x00E0: // clear the screen
-                    std::memset(video, 0, VIDEO_MEMORY_SIZE);
+                    std::memset(video, 0, sizeof(video));
                     video_updated = true;
                     break;
                 case 0x00EE: // return from routine
                     pc = stack[--sp];
                     break;
                 default: // call machine code routine, Not necessary for most ROMs
-                    message_box("Error", "Unhandled opcode 0NNN was reached");
-                    terminate = true;
+                    pc = opcode & 0x0FFF;
             }
             break;
         case 0x1: // jmp to address
@@ -101,7 +110,6 @@ Chip8::cycle()
             {
                 pc += 2;
             }
-
             break;
         case 0x4: // Vx != NN skip instruction
             regX = (opcode & 0x0F00) >> 8;
@@ -111,7 +119,6 @@ Chip8::cycle()
             {
                 pc += 2;
             }
-
             break;
         case 0x5: // Vx == Vy skip instruction
             regX = (opcode & 0x0F00) >> 8;
@@ -121,7 +128,6 @@ Chip8::cycle()
             {
                 pc += 2;
             }
-
             break;
         case 0x6: // Set Vx to NN
             regX = (opcode & 0x0F00) >> 8;
@@ -199,7 +205,6 @@ Chip8::cycle()
                     registers[regX] <<= 1;
                     break;
             }
-
             break;
         case 0x9: // Vx != Vy skip instruction
             regX = (opcode & 0x0F00) >> 8;
@@ -209,7 +214,6 @@ Chip8::cycle()
             {
                 pc += 2;
             }
-
             break;
         case 0xA: // Set I to address NNN
             index = opcode & 0x0FFF;
@@ -256,7 +260,6 @@ Chip8::cycle()
             video_updated = true;
         } break;
         case 0xE:
-        {
             val = opcode & 0x00FF;
             regX = (opcode & 0x0F00) >> 8;
 
@@ -275,9 +278,8 @@ Chip8::cycle()
                     }
                     break;
             }
-        } break;
+            break;
         case 0xF:
-        {
             val = opcode & 0x00FF;
             regX = (opcode & 0x0F00) >> 8;
 
@@ -288,6 +290,7 @@ Chip8::cycle()
                     break;
                 case 0x0A: // Key is pressed and stored in Vx, this is a blocking operation
                     require_input = true;
+                    key_register = regX;
                     break;
                 case 0x15: // Set delay timer to Vx
                     delay_timer = registers[regX];
@@ -303,15 +306,15 @@ Chip8::cycle()
                     index = 5 * val; // font start address is zero therefore can ignore adding it
                     break;
                 case 0x33: // Store binary-coded-decimal representation of Vx with the hundreds digit in memory at location in Index
-                        val = registers[regX];
-                        
-                        memory[index + 2] = val % 10;
-                        val /= 10;
-                        
-                        memory[index + 1] = val % 10;
-                        val /= 10;
+                    val = registers[regX];
+                    
+                    memory[index + 2] = val % 10;
+                    val /= 10;
+                    
+                    memory[index + 1] = val % 10;
+                    val /= 10;
 
-                        memory[index] = val % 10;
+                    memory[index] = val % 10;
                     break;
                 case 0x55: // Store V0 to Vx (inclusive) in memory starting at Index
                     for (int i = 0; i <= registers[regX]; ++i)
@@ -326,10 +329,20 @@ Chip8::cycle()
                     }
                     break;
             }
-        } break;
+            break;
         default:
             message_box("Error", "Unknown opcode");
-            terminate = true;
+            running = false;
+    }
+
+    if (delay_timer > 0)
+    {
+        --delay_timer;
+    }
+
+    if (sound_timer > 0)
+    {
+        --sound_timer;
     }
 }
 
@@ -351,7 +364,7 @@ init_application(int argc, char **argv, void **app, int *width, int *height, cha
     emulator->last_key_press = 0;
     emulator->video_updated = false;
     emulator->require_input = false;
-    emulator->terminate = false;
+    emulator->running = true;
 
     *app = emulator;
 
@@ -382,32 +395,114 @@ init_application(int argc, char **argv, void **app, int *width, int *height, cha
     return true;
 }
 
+const double desired_frame_time = (1 / 60) * 1000;
+
 bool 
-update_application(void *app) 
+update_application(void *app, double frame_time) 
 {
     Chip8 *emulator = reinterpret_cast<Chip8*>(app);
-    emulator->cycle();
-    return !emulator->terminate;
+
+    if (emulator->frame_time >= 16)
+    {
+        emulator->frame_time = 0;
+        emulator->cycle();
+    }
+    else
+    {
+        emulator->frame_time += frame_time;
+    }
+    
+    return emulator->running;
 }
 
 void 
-handle_input(void *app) 
+handle_input(void *app, Input_events &input_events) 
 {
     Chip8 *emulator = reinterpret_cast<Chip8*>(app);
 
-    if (emulator->require_input) 
+    if (input_events.event[Input_events::CODES::ONE] & Input_events::STATE::DOWN)
     {
-        // TODO: If input occured get keycode and set require_input to false 
+        emulator->last_key_press = 0x00;
     }
+    else if (input_events.event[Input_events::CODES::TWO] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x01;
+    }
+    else if (input_events.event[Input_events::CODES::THREE] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x02;
+    }
+    else if (input_events.event[Input_events::CODES::FOUR] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x03;
+    }
+    else if (input_events.event[Input_events::CODES::Q] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x04;
+    }
+    else if (input_events.event[Input_events::CODES::W] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x05;
+    }
+    else if (input_events.event[Input_events::CODES::E] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x06;
+    }
+    else if (input_events.event[Input_events::CODES::R] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x07;
+    }
+    else if (input_events.event[Input_events::CODES::A] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x08;
+    }
+    else if (input_events.event[Input_events::CODES::S] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x09;
+    }
+    else if (input_events.event[Input_events::CODES::D] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x0A;
+    }
+    else if (input_events.event[Input_events::CODES::F] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x0B;
+    }
+    else if (input_events.event[Input_events::CODES::Z] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x0C;
+    }
+    else if (input_events.event[Input_events::CODES::X] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x0D;
+    }
+    else if (input_events.event[Input_events::CODES::C] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x0E;
+    }
+    else if (input_events.event[Input_events::CODES::V] & Input_events::STATE::DOWN)
+    {
+        emulator->last_key_press = 0x0F;
+    }
+
+    if (input_events.event[Input_events::CODES::ESC] & Input_events::STATE::UP)
+    {
+        emulator->running = false;
+    }
+
+    std::memset(input_events.event, 0, sizeof(input_events.event));
 }
 
 bool 
 render_application(void *app, uint32_t *pixels, int width, int height) 
 {
+     
     Chip8 *emulator = reinterpret_cast<Chip8*>(app);
    
     if (emulator->video_updated) 
     {
+        std::memset(pixels, 0, width * height * sizeof(uint32_t));
+        
         for (int i = 0; i < SCREEN_HEIGHT; ++i)
         {
             for (int j = 0; j < SCREEN_WIDTH; ++j)
