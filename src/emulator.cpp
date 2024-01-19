@@ -29,7 +29,8 @@ struct Chip8 {
     bool video_updated;
     bool running;
 
-    double frame_time;
+    double clock_time;
+    double cpu_time;
 
     void cycle();
 };
@@ -389,14 +390,19 @@ Chip8::cycle()
             running = false;
     }
 
-    if (delay_timer > 0)
+    if (clock_time >= 16)
     {
-        --delay_timer;
-    }
+        clock_time = 0;
 
-    if (sound_timer > 0)
-    {
-        --sound_timer;
+        if (delay_timer > 0)
+        {
+            --delay_timer;
+        }
+
+        if (sound_timer > 0)
+        {
+            --sound_timer;
+        }
     }
 }
 
@@ -420,6 +426,8 @@ init_application(int argc, char **argv, void **app, int *width, int *height, cha
     emulator->latest_key_press = 0;
     emulator->video_updated = false;
     emulator->running = true;
+    emulator->cpu_time = 0;
+    emulator->clock_time = 0;
 
     *app = emulator;
 
@@ -456,15 +464,13 @@ bool
 update_application(void *app, double frame_time) 
 {
     Chip8 *emulator = reinterpret_cast<Chip8*>(app);
-
-    if (emulator->frame_time >= 16)
+    emulator->clock_time += frame_time;
+    emulator->cpu_time += frame_time;
+    
+    if (emulator->cpu_time >= 2)
     {
-        emulator->frame_time = 0;
         emulator->cycle();
-    }
-    else
-    {
-        emulator->frame_time += frame_time;
+        emulator->cpu_time = 0;
     }
     
     return emulator->running;
