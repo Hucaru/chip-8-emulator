@@ -372,13 +372,13 @@ Chip8::cycle()
                     memory[index] = val % 10;
                     break;
                 case 0x55: // Store V0 to Vx (inclusive) in memory starting at Index
-                    for (int i = 0; i <= registers[regX]; ++i)
+                    for (int i = 0; i <= regX; ++i)
                     {
                         memory[index + i] = registers[i];
                     }
                     break;
                 case 0x65: // Store values from 0 to X from memory in registers V0 - Vx
-                    for (int i = 0; i <= registers[regX]; ++i)
+                    for (int i = 0; i <= regX; ++i)
                     {
                         registers[i] = memory[index + i];
                     }
