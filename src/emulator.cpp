@@ -5,7 +5,6 @@
 #include <ctime>
 
 #include <algorithm>
-#include <iostream>
 
 const uint16_t MEMORY_START_ADDRESS = 0x200;
 const int SCREEN_WIDTH = 64;
@@ -22,11 +21,12 @@ struct Chip8 {
     uint16_t sp;
     uint16_t delay_timer;
     uint16_t sound_timer;
-    uint8_t last_key_press;
-    uint8_t key_register;
+    bool keypad[0xF];
+
+    uint8_t prev_key_press;
+    uint8_t latest_key_press;
 
     bool video_updated;
-    bool require_input;
     bool running;
 
     double frame_time;
@@ -57,23 +57,12 @@ const uint8_t font[80] =
 void 
 Chip8::cycle() 
 {
-    if (require_input && last_key_press == 0)
-    {
-        return;
-    }
-    else if (require_input && last_key_press > 0)
-    {
-        registers[key_register] = last_key_press;
-        last_key_press = 0;
-        require_input = false;
-    }
-
     video_updated = false;
 
     uint16_t opcode = memory[pc] << 8 | memory[pc + 1];
-    pc += 2;
-
     uint16_t op_nible = (opcode & 0xF000) >> 12;
+
+    pc += 2;
 
     uint8_t regX, regY;
     uint16_t val;
@@ -266,13 +255,13 @@ Chip8::cycle()
             switch (val)
             {
                 case 0x9E: // if (key() == Vx) skip instruction
-                    if (registers[regX] == last_key_press)
+                    if (keypad[registers[regX]])
                     {
                         pc += 2;
                     }
                     break;
                 case 0xA1: // if (key() != Vx) skip instruction
-                    if (registers[regX] != last_key_press)
+                    if (keypad[registers[regX]])
                     {
                         pc += 2;
                     }
@@ -289,8 +278,74 @@ Chip8::cycle()
                     registers[regX] = delay_timer;
                     break;
                 case 0x0A: // Key is pressed and stored in Vx, this is a blocking operation
-                    require_input = true;
-                    key_register = regX;
+                    if (keypad[0x0])
+                    {
+                        registers[regX] = 0x0;
+                    }
+                    else if (keypad[0x1])
+                    {
+                        registers[regX] = 0x1;
+                    }
+                    else if (keypad[0x2])
+                    {
+                        registers[regX] = 0x2;
+                    }
+                    else if (keypad[0x3])
+                    {
+                        registers[regX] = 0x3;
+                    }
+                    else if (keypad[0x4])
+                    {
+                        registers[regX] = 0x4;
+                    }
+                    else if (keypad[0x5])
+                    {
+                        registers[regX] = 0x5;
+                    }
+                    else if (keypad[0x6])
+                    {
+                        registers[regX] = 0x6;
+                    }
+                    else if (keypad[0x7])
+                    {
+                        registers[regX] = 0x7;
+                    }
+                    else if (keypad[0x8])
+                    {
+                        registers[regX] = 0x8;
+                    }
+                    else if (keypad[0x9])
+                    {
+                        registers[regX] = 0x9;
+                    }
+                    else if (keypad[0xa])
+                    {
+                        registers[regX] = 0xa;
+                    }
+                    else if (keypad[0xb])
+                    {
+                        registers[regX] = 0xb;
+                    }
+                    else if (keypad[0xc])
+                    {
+                        registers[regX] = 0xc;
+                    }
+                    else if (keypad[0xd])
+                    {
+                        registers[regX] = 0xd;
+                    }
+                    else if (keypad[0xe])
+                    {
+                        registers[regX] = 0xe;
+                    }
+                    else if (keypad[0xf])
+                    {
+                        registers[regX] = 0xf;
+                    }
+                    else
+                    {
+                        pc -= 2;
+                    }
                     break;
                 case 0x15: // Set delay timer to Vx
                     delay_timer = registers[regX];
@@ -302,8 +357,7 @@ Chip8::cycle()
                     index += registers[regX];
                     break;
                 case 0x29: // Set Index to the location of the sprite character in Vx
-                    val = registers[regX];
-                    index = 5 * val; // font start address is zero therefore can ignore adding it
+                    index = 5 * registers[regX]; // font start address is zero therefore can ignore adding it
                     break;
                 case 0x33: // Store binary-coded-decimal representation of Vx with the hundreds digit in memory at location in Index
                     val = registers[regX];
@@ -358,12 +412,13 @@ init_application(int argc, char **argv, void **app, int *width, int *height, cha
     std::memset(emulator->stack, 0, sizeof(emulator->stack));
     std::memset(emulator->memory, 0, sizeof(emulator->memory));
     std::memset(emulator->video, 0, sizeof(emulator->video));
+    std::memset(emulator->keypad, false, sizeof(emulator->keypad));
     emulator->pc = MEMORY_START_ADDRESS;
     emulator->delay_timer = 0;
     emulator->sound_timer = 0;
-    emulator->last_key_press = 0;
+    emulator->prev_key_press = 0;
+    emulator->latest_key_press = 0;
     emulator->video_updated = false;
-    emulator->require_input = false;
     emulator->running = true;
 
     *app = emulator;
@@ -420,69 +475,69 @@ handle_input(void *app, Input_events &input_events)
 {
     Chip8 *emulator = reinterpret_cast<Chip8*>(app);
 
-    if (input_events.event[Input_events::CODES::ONE] & Input_events::STATE::DOWN)
+    if (input_events.event[Input_events::CODES::ONE])
     {
-        emulator->last_key_press = 0x00;
+        emulator->keypad[0x00] = input_events.event[Input_events::CODES::ONE] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::TWO] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::TWO])
     {
-        emulator->last_key_press = 0x01;
+        emulator->keypad[0x01] = input_events.event[Input_events::CODES::TWO] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::THREE] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::THREE])
     {
-        emulator->last_key_press = 0x02;
+        emulator->keypad[0x02] = input_events.event[Input_events::CODES::THREE] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::FOUR] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::FOUR])
     {
-        emulator->last_key_press = 0x03;
+        emulator->keypad[0x03] = input_events.event[Input_events::CODES::FOUR] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::Q] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::Q])
     {
-        emulator->last_key_press = 0x04;
+        emulator->keypad[0x04] = input_events.event[Input_events::CODES::Q] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::W] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::W])
     {
-        emulator->last_key_press = 0x05;
+        emulator->keypad[0x05] = input_events.event[Input_events::CODES::W] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::E] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::E])
     {
-        emulator->last_key_press = 0x06;
+        emulator->keypad[0x06] = input_events.event[Input_events::CODES::E] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::R] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::R])
     {
-        emulator->last_key_press = 0x07;
+        emulator->keypad[0x07] = input_events.event[Input_events::CODES::R] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::A] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::A])
     {
-        emulator->last_key_press = 0x08;
+        emulator->keypad[0x08] = input_events.event[Input_events::CODES::A] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::S] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::S])
     {
-        emulator->last_key_press = 0x09;
+        emulator->keypad[0x09] = input_events.event[Input_events::CODES::S] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::D] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::D])
     {
-        emulator->last_key_press = 0x0A;
+        emulator->keypad[0x0A] = input_events.event[Input_events::CODES::D] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::F] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::F])
     {
-        emulator->last_key_press = 0x0B;
+        emulator->keypad[0x0B] = input_events.event[Input_events::CODES::F] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::Z] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::Z])
     {
-        emulator->last_key_press = 0x0C;
+        emulator->keypad[0x0C] = input_events.event[Input_events::CODES::Z] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::X] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::X])
     {
-        emulator->last_key_press = 0x0D;
+        emulator->keypad[0x0D] = input_events.event[Input_events::CODES::X] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::C] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::C])
     {
-        emulator->last_key_press = 0x0E;
+        emulator->keypad[0x0E] = input_events.event[Input_events::CODES::C] & Input_events::STATE::DOWN;
     }
-    else if (input_events.event[Input_events::CODES::V] & Input_events::STATE::DOWN)
+    else if (input_events.event[Input_events::CODES::V])
     {
-        emulator->last_key_press = 0x0F;
+        emulator->keypad[0x0F] = input_events.event[Input_events::CODES::V] & Input_events::STATE::DOWN;
     }
 
     if (input_events.event[Input_events::CODES::ESC] & Input_events::STATE::UP)

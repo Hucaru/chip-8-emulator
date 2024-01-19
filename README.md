@@ -13,4 +13,4 @@ To run the emulator pass the ROM path as the first command line argument e.g. `.
 
 ## Screenshots
 ### Pong
-![PONG](screenshots/pong.png?raw=true "PONG")
+![PONG](screenshots/pong.gif?raw=true "PONG")
